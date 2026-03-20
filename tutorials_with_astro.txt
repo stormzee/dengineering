@@ -1,0 +1,5 @@
+install astro cli
+setup airflow astro project
+build etl Dags and tasks
+build docker compose file to run project dependencies
+Run astro start dev
