@@ -1,0 +1,13 @@
+README.md
+pyproject.toml
+dengineering/__init__.py
+dengineering.egg-info/PKG-INFO
+dengineering.egg-info/SOURCES.txt
+dengineering.egg-info/dependency_links.txt
+dengineering.egg-info/requires.txt
+dengineering.egg-info/top_level.txt
+dengineering/pipelines/__init__.py
+dengineering/pipelines/csv_ingestion.py
+dengineering/pipelines/etl.py
+dengineering/pipelines/json_to_parquet.py
+dengineering/pipelines/validation.py
