@@ -1,32 +1,103 @@
-# Project Overview
+# REDCap ETL with REDCap API Extraction
 
-Building Extract, Transform, and Load (ETL) workloads is a common pattern in Apache Airflow. This template shows an example pattern for defining an ETL workload using DuckDB as the data warehouse of choice.
+This project runs an Apache Airflow DAG that:
 
-Astronomer is the best place to host Apache Airflow -- try it out with a free trial at [astronomer.io](https://www.astronomer.io/).
+1. Extracts records from REDCap using the REDCap API.
+2. Transforms the extracted dataset into SQL-safe column names.
+3. Loads the results into Postgres table `public.redcap_data`.
 
-# Learning Paths
+The pipeline is implemented in `dags/redcapetl.py` and scheduled to run daily.
 
-To learn more about data engineering with Apache Airflow, make a few changes to this project! For example, try one of the following:
+## What the DAG Does
 
-1. Changing the data warehouse to a different provider (Snowflake, AWS Redshift, etc.)
-2. Adding a different data source and integrating it with this ETL project
-3. Adding the [EmailOperator](https://registry.astronomer.io/providers/apache-airflow/versions/2.8.1/modules/EmailOperator) to the project and notifying a user on job completion
+The `redcap_etl` DAG includes two tasks:
 
-# Project Contents
+1. `extract_data(api_url, api_key)`
+   - Connects to REDCap using PyCap (`redcap.Project`).
+   - Calls `export_records(format_type='csv', raw_or_label='raw')`.
+   - Returns raw CSV text.
 
-Your Astro project contains the following files and folders:
+2. `load_data_to_postgres(transformed_redcap_data)`
+   - Parses CSV to a pandas DataFrame.
+   - Normalizes column names to lowercase alphanumeric/underscore format.
+   - Drops and recreates `public.redcap_data` with all columns as `TEXT`.
+   - Bulk inserts rows into Postgres using `psycopg2.extras.execute_values`.
 
-- dags: This folder contains the Python files for your Airflow DAGs. By default, this directory includes two example DAGs:
-  - `example_etl_galaxies`: This example demonstrates an ETL pipeline using Airflow. The pipeline extracts data about galaxies, filters the data based on the distance from the Milky Way, and loads the filtered data into a DuckDB database.
-- Dockerfile: This file contains a versioned Astro Runtime Docker image that provides a differentiated Airflow experience. If you want to execute other commands or overrides at runtime, specify them here.
-- include: This folder contains any additional files that you want to include as part of your project. It is empty by default.
-- packages.txt: Install OS-level packages needed for your project by adding them to this file. It is empty by default.
-- requirements.txt: Install Python packages needed for your project by adding them to this file. It is empty by default.
-- plugins: Add custom or community plugins for your project to this file. It is empty by default.
-- airflow_settings.yaml: Use this local-only file to specify Airflow Connections, Variables, and Pools instead of entering them in the Airflow UI as you develop DAGs in this project.
+## Project Files
 
-# Deploying to Production
+- `dags/redcapetl.py`: Main Airflow DAG for REDCap extraction and Postgres loading.
+- `docker-compose.yml`: Local Postgres service.
+- `requirements.txt`: Python dependencies (PyCap, pandas, psycopg2, etc.).
+- `Dockerfile`: Astro Runtime image configuration.
+- `.env`: Local environment values for runtime configuration.
 
-### ❗Warning❗
+## Prerequisites
 
-This template used DuckDB, an in-memory database, for running dbt transformations. While this is great to learn Airflow, your data is not guaranteed to persist between executions! For production applications, use a _persistent database_ instead (consider DuckDB's hosted option MotherDuck or another database like Postgres, MySQL, or Snowflake).
+- Docker Desktop (or compatible Docker engine)
+- Astro CLI
+- REDCap API URL and API key/token for your project
+
+## Configuration
+
+Set these environment variables so the DAG can authenticate to REDCap:
+
+- `API_URL`: REDCap API endpoint URL
+- `API_KEY`: REDCap API token
+
+This DAG also uses Airflow Postgres connection id `postgres_default`.
+
+For local development, Postgres is provided by `docker-compose.yml` with:
+
+- host: `localhost`
+- port: `5432`
+- database: `postgres`
+- username: `postgres`
+- password: `postgres`
+
+Ensure `postgres_default` points to those values (or update the DAG/connection accordingly).
+
+## Run Locally
+
+1. Start local Postgres dependency:
+
+   ```powershell
+   docker compose up -d postgres
+   ```
+
+2. Start Airflow with Astro:
+
+   ```powershell
+   astro dev start
+   ```
+
+3. Open the Airflow UI from Astro output, then trigger DAG `redcap_etl`.
+
+## Data Load Behavior
+
+- Table is replaced on each run:
+  - `DROP TABLE IF EXISTS public.redcap_data`
+  - `CREATE TABLE public.redcap_data (...)`
+- All columns are loaded as `TEXT`.
+- Missing values are inserted as SQL `NULL`.
+
+If you want append behavior or typed columns, adjust `load_data_to_postgres` in `dags/redcapetl.py`.
+
+## Validation
+
+After a successful run, validate data in Postgres:
+
+```sql
+SELECT COUNT(*) FROM public.redcap_data;
+SELECT * FROM public.redcap_data LIMIT 20;
+```
+
+## Troubleshooting
+
+- Empty extraction result:
+  - Confirm `API_URL` and `API_KEY` are set correctly.
+  - Confirm the REDCap token has export permissions.
+- Postgres connection failures:
+  - Confirm Postgres container is running.
+  - Confirm `postgres_default` settings match local container values.
+- Schema mismatches downstream:
+  - Column names are normalized during load, so update downstream queries accordingly.
